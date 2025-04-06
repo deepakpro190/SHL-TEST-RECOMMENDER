@@ -78,3 +78,49 @@ def process_query():
             "success": False,
             "response": f"Error: {str(e)}"
         })
+
+
+@app.route("/api/recommend", methods=["POST"])
+def api_recommend():
+    try:
+        data = request.get_json()
+        user_query = data.get("query", "").strip()
+        print(f"[API] Received query: {user_query}")
+
+        # You can reuse the same logic as in /process_query
+        from agents.query_analysis import analyze_query_with_mistral
+        analysis = analyze_query_with_mistral(user_query)
+
+        if analysis.get("keywords"):
+            subprocess.run(["python", "scripts/first.py", *analysis["keywords"]],
+                           check=False, timeout=60)
+
+        if any([analysis.get("job_family"), analysis.get("job_level"),
+                analysis.get("industry"), analysis.get("language")]):
+            subprocess.run([
+                "python", "scripts/second.py",
+                "--family", analysis.get("job_family", ""),
+                "--level", analysis.get("job_level", ""),
+                "--industry", analysis.get("industry", ""),
+                "--language", analysis.get("language", "")
+            ], check=True)
+
+        if analysis.get("job_category"):
+            subprocess.run([
+                "python", "scripts/third.py",
+                "--category", analysis["job_category"]
+            ], check=True)
+
+        store_results_to_faiss()
+        results = query_faiss(user_query)
+        response = generate_response(user_query, results)
+
+        return jsonify({"success": True, "response": response})
+
+    except Exception as e:
+        print(f"[API] Error: {str(e)}")
+        print(traceback.format_exc())
+        return jsonify({
+            "success": False,
+            "response": f"Error: {str(e)}"
+        })
